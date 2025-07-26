@@ -1,19 +1,20 @@
 <template>
-  <el-config-provider :size="elSize" :locale="locales[language]" :z-index="3000">
-    <router-view></router-view>
-  </el-config-provider>
+  <ElConfigProvider size="default" :locale="locales[language]" :z-index="3000">
+    <RouterView></RouterView>
+  </ElConfigProvider>
 </template>
 
 <script setup lang="ts">
   import { useUserStore } from './store/modules/user'
   import zh from 'element-plus/es/locale/lang/zh-cn'
   import en from 'element-plus/es/locale/lang/en'
-  import { checkSystemUpgrade } from './utils/upgrade'
-  import { initState, saveUserData } from './utils/storage'
+  import { systemUpgrade } from './utils/sys'
+  import { UserService } from './api/usersApi'
+  import { setThemeTransitionClass } from './utils/theme/animation'
+  import { checkStorageCompatibility } from './utils/storage'
 
   const userStore = useUserStore()
-  const language = computed(() => userStore.language)
-  const elSize = computed(() => (document.body.clientWidth >= 500 ? 'large' : 'default'))
+  const { language } = storeToRefs(userStore)
 
   const locales = {
     zh: zh,
@@ -21,10 +22,18 @@
   }
 
   onBeforeMount(() => {
-    setBodyClass(true)
+    setThemeTransitionClass(true)
   })
 
   onMounted(() => {
+    // 检查存储兼容性
+    checkStorageCompatibility()
+    // 提升暗黑主题下页面刷新视觉体验
+    setThemeTransitionClass(false)
+    // 系统升级
+    systemUpgrade()
+    // 获取用户信息
+    getUserInfo()
     initState()
     saveUserData()
     setBodyClass(false)
@@ -34,13 +43,23 @@
   // 提升暗黑主题下页面刷新视觉体验
   const setBodyClass = (addClass: boolean) => {
     let el = document.getElementsByTagName('body')[0]
-
     if (addClass) {
       el.setAttribute('class', 'theme-change')
     } else {
       setTimeout(() => {
         el.removeAttribute('class')
       }, 300)
+    }
+  }
+  // 获取用户信息
+  const getUserInfo = async () => {
+    if (userStore.isLogin) {
+      try {
+        const data = await UserService.getUserInfo()
+        userStore.setUserInfo(data)
+      } catch (error) {
+        console.error('获取用户信息失败', error)
+      }
     }
   }
 </script>

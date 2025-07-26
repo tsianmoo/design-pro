@@ -5,10 +5,14 @@ import viteCompression from 'vite-plugin-compression'
 import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
+import { fileURLToPath } from 'url'
 // import viteImagemin from 'vite-plugin-imagemin'
 // import { visualizer } from 'rollup-plugin-visualizer'
 
-export default ({ mode }) => {
+// https://devtools.vuejs.org/getting-started/introduction
+import vueDevTools from 'vite-plugin-vue-devtools'
+
+export default ({ mode }: { mode: string }) => {
   const root = process.cwd()
   const env = loadEnv(mode, root)
   const { VITE_VERSION, VITE_PORT, VITE_BASE_URL, VITE_API_URL } = env
@@ -27,18 +31,12 @@ export default ({ mode }) => {
         '/api': {
           target: VITE_API_URL,
           changeOrigin: true,
-          rewrite: (path) => path
         }
       },
-      host: true,
-      cors: true, // 启用CORS
-      // 移除allowedHosts限制，允许所有主机访问
-      // allowedHosts: ['webroot.yunshu.shops']
     },
     // 路径别名
     resolve: {
       alias: {
-        '@': resolvePath('src'),
         '@views': resolvePath('src/views'),
         '@comps': resolvePath('src/components'),
         '@imgs': resolvePath('src/assets/img'),
@@ -66,6 +64,11 @@ export default ({ mode }) => {
             vendor: ['vue', 'vue-router', 'pinia', 'element-plus']
           }
         }
+      },
+      dynamicImportVarsOptions: {
+        warnOnError: true,
+        exclude: [],
+        include: ['src/views/**/*.vue']
       }
     },
     plugins: [
@@ -104,7 +107,7 @@ export default ({ mode }) => {
         ext: '.gz', // 压缩后的文件名后缀
         threshold: 10240, // 只有大小大于该值的资源会被处理 10240B = 10KB
         deleteOriginFile: false // 压缩后是否删除原文件
-      })
+      }),
       // 图片压缩
       // viteImagemin({
       //   verbose: true, // 是否在控制台输出压缩结果
@@ -140,6 +143,7 @@ export default ({ mode }) => {
       //     ]
       //   }
       // })
+      vueDevTools()
     ],
     // 预加载项目必需的组件
     optimizeDeps: {
@@ -220,20 +224,25 @@ export default ({ mode }) => {
         'element-plus/es/components/progress/style/css',
         'element-plus/es/components/image-viewer/style/css',
         'element-plus/es/components/empty/style/css',
-        'element-plus/es/components/segmented/style/css'
+        'element-plus/es/components/segmented/style/css',
+        'element-plus/es/components/calendar/style/css',
+        'element-plus/es/components/message/style/css',
+        'xlsx',
+        'file-saver',
+        'element-plus/es/components/timeline/style/css',
+        'element-plus/es/components/timeline-item/style/css',
+        'vue-img-cutter'
       ]
     },
     css: {
       preprocessorOptions: {
+        // sass variable and mixin
         scss: {
+          api: 'modern-compiler',
           additionalData: `
-            @use "@styles/variables.scss" as *;
+            @use "@styles/variables.scss" as *; 
             @use "@styles/mixin.scss" as *;
-          `,
-          sassOptions: {
-            outputStyle: 'expanded'
-          },
-          api: 'modern'
+          `
         }
       },
       postcss: {
@@ -254,6 +263,6 @@ export default ({ mode }) => {
   })
 }
 
-function resolvePath(paths) {
+function resolvePath(paths: string) {
   return path.resolve(__dirname, paths)
 }

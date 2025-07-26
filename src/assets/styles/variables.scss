@@ -206,6 +206,11 @@ $device-phone: 500px;
   color: rgb(var(--art-success)) !important;
 }
 
+.bg-info {
+  background-color: rgb(var(--art-bg-info)) !important;
+  color: rgb(var(--art-info)) !important;
+}
+
 .bg-danger {
   background-color: rgb(var(--art-bg-danger)) !important;
   color: rgb(var(--art-danger)) !important;

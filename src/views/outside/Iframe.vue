@@ -1,5 +1,5 @@
 <template>
-  <div class="iframe-container">
+  <div class="iframe-container" v-loading="isLoading">
     <iframe
       ref="iframeRef"
       :src="iframeUrl"
@@ -11,20 +11,18 @@
 </template>
 
 <script setup lang="ts">
-  import { getIframeRoutes } from '@/utils/menu'
-  import { ref, onMounted } from 'vue'
+  import { getIframeRoutes } from '@/router/utils/menuToRouter'
 
   const route = useRoute()
-
-  const iframeRef = ref<HTMLIFrameElement | null>(null)
   const isLoading = ref(true)
   const iframeUrl = ref('')
+  const iframeRef = ref<HTMLIFrameElement | null>(null)
 
   onMounted(() => {
     const iframeRoute = getIframeRoutes().find((item: any) => item.path === route.path)
 
     if (iframeRoute?.meta) {
-      iframeUrl.value = iframeRoute.meta.link
+      iframeUrl.value = iframeRoute.meta.link || ''
     }
   })
 

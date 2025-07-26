@@ -1,152 +1,162 @@
 import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
 import { LanguageEnum } from '@/enums/appEnum'
 import { router } from '@/router'
-import { UserInfo } from '@/types/store'
 import { useSettingStore } from './setting'
 import { useWorktabStore } from './worktab'
-import { getSysStorage } from '@/utils/storage'
-import { MenuListType } from '@/types/menu'
+import { AppRouteRecord } from '@/types/router'
+import { setPageTitle } from '@/router/utils/utils'
+import { resetRouterState } from '@/router/guards/beforeEach'
+import { RoutesAlias } from '@/router/routesAlias'
+import { useMenuStore } from './menu'
 
-interface UserState {
-  language: LanguageEnum // 语言
-  isLogin: boolean // 是否登录
-  isLock: boolean // 是否锁屏
-  lockPassword: string // 锁屏密码
-  info: Partial<UserInfo> // 用户信息
-  searchHistory: MenuListType[] // 搜索历史
-}
+/**
+ * 用户状态管理
+ * 管理用户登录状态、个人信息、语言设置、搜索历史、锁屏状态等
+ */
+export const useUserStore = defineStore(
+  'userStore',
+  () => {
+    // 语言设置
+    const language = ref(LanguageEnum.ZH)
+    // 登录状态
+    const isLogin = ref(false)
+    // 锁屏状态
+    const isLock = ref(false)
+    // 锁屏密码
+    const lockPassword = ref('')
+    // 用户信息
+    const info = ref<Partial<Api.User.UserInfo>>({})
+    // 搜索历史记录
+    const searchHistory = ref<AppRouteRecord[]>([])
+    // 访问令牌
+    const accessToken = ref('')
+    // 刷新令牌
+    const refreshToken = ref('')
 
-export const useUserStore = defineStore({
-  id: 'userStore',
-  state: (): UserState => ({
-    language: LanguageEnum.ZH,
-    isLogin: false,
-    isLock: false,
-    lockPassword: '',
-    info: {},
-    searchHistory: []
-  }),
-  getters: {
-    getUserInfo(): Partial<UserInfo> {
-      return this.info
-    },
-    getSettingState() {
-      return useSettingStore().$state
-    },
-    getWorktabState() {
-      return useWorktabStore().$state
+    // 计算属性：获取用户信息
+    const getUserInfo = computed(() => info.value)
+    // 计算属性：获取设置状态
+    const getSettingState = computed(() => useSettingStore().$state)
+    // 计算属性：获取工作台状态
+    const getWorktabState = computed(() => useWorktabStore().$state)
+
+    /**
+     * 设置用户信息
+     * @param newInfo 新的用户信息
+     */
+    const setUserInfo = (newInfo: Api.User.UserInfo) => {
+      info.value = newInfo
+    }
+
+    /**
+     * 设置登录状态
+     * @param status 登录状态
+     */
+    const setLoginStatus = (status: boolean) => {
+      isLogin.value = status
+    }
+
+    /**
+     * 设置语言
+     * @param lang 语言枚举值
+     */
+    const setLanguage = (lang: LanguageEnum) => {
+      setPageTitle(router.currentRoute.value)
+      language.value = lang
+    }
+
+    /**
+     * 设置搜索历史
+     * @param list 搜索历史列表
+     */
+    const setSearchHistory = (list: AppRouteRecord[]) => {
+      searchHistory.value = list
+    }
+
+    /**
+     * 设置锁屏状态
+     * @param status 锁屏状态
+     */
+    const setLockStatus = (status: boolean) => {
+      isLock.value = status
+    }
+
+    /**
+     * 设置锁屏密码
+     * @param password 锁屏密码
+     */
+    const setLockPassword = (password: string) => {
+      lockPassword.value = password
+    }
+
+    /**
+     * 设置令牌
+     * @param newAccessToken 访问令牌
+     * @param newRefreshToken 刷新令牌（可选）
+     */
+    const setToken = (newAccessToken: string, newRefreshToken?: string) => {
+      accessToken.value = newAccessToken
+      if (newRefreshToken) {
+        refreshToken.value = newRefreshToken
+      }
+    }
+
+    /**
+     * 退出登录
+     * 清空所有用户相关状态并跳转到登录页
+     */
+    const logOut = () => {
+      // 清空用户信息
+      info.value = {}
+      // 重置登录状态
+      isLogin.value = false
+      // 重置锁屏状态
+      isLock.value = false
+      // 清空锁屏密码
+      lockPassword.value = ''
+      // 清空访问令牌
+      accessToken.value = ''
+      // 清空刷新令牌
+      refreshToken.value = ''
+      // 清空工作台已打开页面
+      useWorktabStore().opened = []
+      // 移除iframe路由缓存
+      sessionStorage.removeItem('iframeRoutes')
+      // 清空主页路径
+      useMenuStore().setHomePath('')
+      // 重置路由状态
+      resetRouterState()
+      // 跳转到登录页
+      router.push(RoutesAlias.Login)
+    }
+
+    return {
+      language,
+      isLogin,
+      isLock,
+      lockPassword,
+      info,
+      searchHistory,
+      accessToken,
+      refreshToken,
+      getUserInfo,
+      getSettingState,
+      getWorktabState,
+      setUserInfo,
+      setLoginStatus,
+      setLanguage,
+      setSearchHistory,
+      setLockStatus,
+      setLockPassword,
+      setToken,
+      logOut
     }
   },
-  actions: {
-    initState() {
-      let sys = getSysStorage()
-
-      if (sys) {
-        sys = JSON.parse(sys)
-        const { info, isLogin, language, searchHistory, isLock, lockPassword } = sys.user
-
-        this.info = info || {}
-        this.isLogin = isLogin || false
-        this.isLock = isLock || false
-        this.lockPassword = lockPassword || ''
-        this.language = language || LanguageEnum.ZH
-        this.searchHistory = searchHistory || []
-      }
-    },
-    saveUserData() {
-      // 保存用户数据到本地存储
-      try {
-        const version = import.meta.env.VITE_VERSION || '1.0.0'
-        const storageKey = `sys-v${version}`
-        
-        // 获取现有数据
-        let sysData = {}
-        const existingData = localStorage.getItem(storageKey)
-        if (existingData) {
-          try {
-            sysData = JSON.parse(existingData)
-          } catch (e) {
-            console.error('解析现有存储数据失败:', e)
-            sysData = {}
-          }
-        }
-        
-        // 获取其他store的状态
-        const worktabStore = useWorktabStore()
-        const settingStore = useSettingStore()
-        
-        // 更新用户数据，确保结构与验证模式匹配
-        sysData = {
-          ...sysData,
-          user: {
-            info: this.info || {},
-            isLogin: this.isLogin,
-            isLock: this.isLock,
-            lockPassword: this.lockPassword,
-            language: this.language,
-            searchHistory: this.searchHistory,
-            worktab: worktabStore.$state,
-            setting: settingStore.$state
-          }
-        }
-        
-        // 保存到localStorage
-        localStorage.setItem(storageKey, JSON.stringify(sysData))
-        localStorage.setItem('version', version)
-        console.log('用户数据已保存到本地存储:', storageKey)
-      } catch (error) {
-        console.error('保存用户数据失败:', error)
-      }
-    },
-    setUserInfo(info: UserInfo) {
-      this.info = info
-    },
-    setLoginStatus(isLogin: boolean) {
-      this.isLogin = isLogin
-    },
-    setLanguage(lang: LanguageEnum) {
-      this.language = lang
-    },
-    setSearchHistory(list: Array<MenuListType>) {
-      this.searchHistory = list
-    },
-    setLockStatus(isLock: boolean) {
-      this.isLock = isLock
-    },
-    setLockPassword(password: string) {
-      this.lockPassword = password
-    },
-    logOut() {
-      setTimeout(() => {
-        // document.getElementsByTagName('html')[0].removeAttribute('class') // 移除暗黑主题
-        this.info = {}
-        this.isLogin = false
-        this.isLock = false
-        this.lockPassword = ''
-        useWorktabStore().opened = []
-        this.saveUserData()
-        sessionStorage.removeItem('iframeRoutes')
-        router.push('/login')
-      }, 300)
+  {
+    persist: {
+      key: 'user',
+      storage: localStorage
     }
   }
-})
-
-function initVersion(version: string) {
-  const vs = localStorage.getItem('version')
-  if (!vs) {
-    localStorage.setItem('version', version)
-  }
-}
-
-// 数据持久化存储
-function saveStoreStorage<T>(newData: T) {
-  const version = import.meta.env.VITE_VERSION
-  initVersion(version)
-  const vs = localStorage.getItem('version') || version
-  const storedData = JSON.parse(localStorage.getItem(`sys-v${vs}`) || '{}')
-
-  // 合并新数据与现有数据
-  const mergedData = { ...storedData, ...newData }
-  localStorage.setItem(`sys-v${vs}`, JSON.stringify(mergedData))
-}
+)

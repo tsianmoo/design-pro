@@ -1,8 +1,8 @@
 import { useSettingStore } from '@/store/modules/setting'
 import { SystemThemeEnum } from '@/enums/appEnum'
-import { SystemThemeStyles } from '@/config/setting'
+import AppConfig from '@/config'
 import { SystemThemeTypes } from '@/types/store'
-import { getDarkColor, getLightColor } from '@/utils/color'
+import { getDarkColor, getLightColor } from '@/utils/ui'
 
 export function useTheme() {
   const settingStore = useSettingStore()
@@ -15,7 +15,7 @@ export function useTheme() {
     document.head.appendChild(style)
   }
 
-  // 启用过渡效果F
+  // 启用过渡效果
   const enableTransitions = () => {
     const style = document.getElementById('disable-transitions')
     if (style) {
@@ -35,7 +35,7 @@ export function useTheme() {
       themeMode = theme
     }
 
-    const currentTheme = SystemThemeStyles[theme as keyof SystemThemeTypes]
+    const currentTheme = AppConfig.systemThemeStyles[theme as keyof SystemThemeTypes]
 
     if (currentTheme) {
       el.setAttribute('class', currentTheme.className)
@@ -72,7 +72,7 @@ export function useTheme() {
   }
 
   // 切换主题
-  const switchTheme = (theme: SystemThemeEnum) => {
+  const switchThemeStyles = (theme: SystemThemeEnum) => {
     if (theme === SystemThemeEnum.AUTO) {
       setSystemAutoTheme()
     } else {
@@ -83,6 +83,6 @@ export function useTheme() {
   return {
     setSystemTheme,
     setSystemAutoTheme,
-    switchTheme
+    switchThemeStyles
   }
 }

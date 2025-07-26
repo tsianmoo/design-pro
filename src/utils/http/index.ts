@@ -1,12 +1,26 @@
 import axios, { InternalAxiosRequestConfig, AxiosRequestConfig, AxiosResponse } from 'axios'
-import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/modules/user'
-import EmojiText from '../emojo'
+import { ApiStatus } from './status'
+import { HttpError, handleError, showError } from './error'
+import { $t } from '@/locales'
+
+// 常量定义
+const REQUEST_TIMEOUT = 15000 // 请求超时时间(毫秒)
+const LOGOUT_DELAY = 1000 // 退出登录延迟时间(毫秒)
+const MAX_RETRIES = 2 // 最大重试次数
+const RETRY_DELAY = 1000 // 重试延迟时间(毫秒)
+
+// 扩展 AxiosRequestConfig 类型
+interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
+  showErrorMessage?: boolean
+}
+
+const { VITE_API_URL, VITE_WITH_CREDENTIALS } = import.meta.env
 
 const axiosInstance = axios.create({
-  timeout: 30000, // 请求超时时间增加到30秒
-  baseURL: import.meta.env.VITE_API_URL, // 使用相对路径，通过Vite代理访问后端API
-  withCredentials: true, // 异步请求携带cookie
+  timeout: REQUEST_TIMEOUT, // 请求超时时间(毫秒)
+  baseURL: VITE_API_URL, // API地址
+  withCredentials: VITE_WITH_CREDENTIALS === 'true', // 是否携带cookie，默认关闭
   transformRequest: [(data) => JSON.stringify(data)], // 请求数据转换为 JSON 字符串
   validateStatus: (status) => status >= 200 && status < 300, // 只接受 2xx 的状态码
   headers: {
@@ -14,13 +28,16 @@ const axiosInstance = axios.create({
     post: { 'Content-Type': 'application/json;charset=utf-8' }
   },
   transformResponse: [
-    (data) => {
-      // 响应数据转换
-      try {
-        return typeof data === 'string' && data.startsWith('{') ? JSON.parse(data) : data
-      } catch {
-        return data // 解析失败时返回原数据
+    (data, headers) => {
+      const contentType = headers['content-type']
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          return JSON.parse(data)
+        } catch {
+          return data
+        }
       }
+      return data
     }
   ]
 })
@@ -28,137 +45,116 @@ const axiosInstance = axios.create({
 // 请求拦截器
 axiosInstance.interceptors.request.use(
   (request: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token')
+    const { accessToken } = useUserStore()
 
-    // 如果 token 存在，则设置请求头
-    if (token) {
-      console.log('添加token到请求头:', token)
-      request.headers.set({
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      })
+    // 设置 token 和 请求头
+    if (accessToken) {
+      request.headers.set('Authorization', accessToken)
+      request.headers.set('Content-Type', 'application/json')
     }
 
-    return request // 返回修改后的配置
+    return request
   },
   (error) => {
-    ElMessage.error(`服务器异常！ ${EmojiText[500]}`) // 显示错误消息
-    return Promise.reject(error) // 返回拒绝的 Promise
+    showError(new HttpError($t('httpMsg.requestConfigError'), ApiStatus.error))
+    return Promise.reject(error)
   }
 )
 
 // 响应拦截器
 axiosInstance.interceptors.response.use(
-  (response: AxiosResponse) => {
-    // 检查响应状态码
-    if (response.status === 401 || response.data?.code === 401) {
-      console.warn('接收到401未授权响应，清除登录状态')
-      // 清除token
-      localStorage.removeItem('token')
-      // 清除登录状态
-      const userStore = useUserStore()
-      userStore.logOut()
-      // 不需要在这里跳转，logOut方法会处理跳转
+  (response: AxiosResponse<Api.Http.BaseResponse>) => {
+    const { code, msg } = response.data
+
+    switch (code) {
+      case ApiStatus.success:
+        return response
+      case ApiStatus.unauthorized:
+        logOut()
+        throw new HttpError(msg || $t('httpMsg.unauthorized'), ApiStatus.unauthorized)
+      default:
+        throw new HttpError(msg || $t('httpMsg.requestFailed'), code)
     }
-    return response
   },
   (error) => {
-    if (axios.isCancel(error)) {
-      console.log('repeated request: ' + error.message)
-    } else {
-      // 处理401未授权错误
-      if (error.response && (error.response.status === 401 || error.response.data?.code === 401)) {
-        console.warn('接收到401未授权响应，清除登录状态')
-        // 清除token
-        localStorage.removeItem('token')
-        // 清除登录状态
-        const userStore = useUserStore()
-        userStore.logOut()
-        // 显示错误消息
-        ElMessage.error('登录已过期，请重新登录')
-      } else {
-        // 其他错误
-        const errorMessage = error.response?.data.message
-        ElMessage.error(
-          errorMessage
-            ? `${errorMessage} ${EmojiText[500]}`
-            : `请求超时或服务器异常！${EmojiText[500]}`
-        )
-      }
-    }
-    return Promise.reject(error)
+    return Promise.reject(handleError(error))
   }
 )
 
-// 请求
-async function request<T = any>(config: AxiosRequestConfig): Promise<T> {
+// 请求重试函数
+async function retryRequest<T>(
+  config: ExtendedAxiosRequestConfig,
+  retries: number = MAX_RETRIES
+): Promise<T> {
   try {
-    console.log('请求配置:', {
-      url: config.url,
-      method: config.method,
-      baseURL: axiosInstance.defaults.baseURL,
-      fullURL: `${axiosInstance.defaults.baseURL}${config.url}`,
-      params: config.params,
-      data: config.data,
-      timeout: config.timeout || axiosInstance.defaults.timeout
-    })
-    
-    // 确保POST和PUT请求的参数正确放在data中
-    if ((config.method === 'post' || config.method === 'put') && config.params) {
-      config.data = config.data || {}
-      Object.assign(config.data, config.params)
-      delete config.params
+    return await request<T>(config)
+  } catch (error) {
+    if (retries > 0 && error instanceof HttpError && shouldRetry(error.code)) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY))
+      return retryRequest<T>(config, retries - 1)
     }
-    
-    // 如果配置中有timeout，使用它覆盖默认值
-    if (config.timeout) {
-      axiosInstance.defaults.timeout = config.timeout
+    throw error
+  }
+}
+
+// 判断是否需要重试
+function shouldRetry(statusCode: number): boolean {
+  return [
+    ApiStatus.requestTimeout,
+    ApiStatus.internalServerError,
+    ApiStatus.badGateway,
+    ApiStatus.serviceUnavailable,
+    ApiStatus.gatewayTimeout
+  ].includes(statusCode)
+}
+
+// 请求函数
+async function request<T = any>(config: ExtendedAxiosRequestConfig): Promise<T> {
+  // 对 POST | PUT 请求特殊处理
+  if (config.method?.toUpperCase() === 'POST' || config.method?.toUpperCase() === 'PUT') {
+    if (config.params && !config.data) {
+      config.data = config.params
+      config.params = undefined
     }
-    
-    const response = await axiosInstance.request<any, AxiosResponse<any>>(config)
-    console.log('响应状态:', response.status)
-    console.log('响应头:', response.headers)
-    console.log('响应数据:', response.data)
-    
-    // 直接返回响应数据，不进行状态码检查
-    // 由调用方根据实际情况处理响应
-    return response.data
-  } catch (error: any) {
-    console.error('请求错误详情:', {
-      message: error.message,
-      code: error.code,
-      config: error.config,
-      response: error.response
-    })
-    
-    // 网络错误特殊处理
-    if (error.code === 'ERR_NETWORK') {
-      ElMessage.error(`网络连接失败，请检查您的网络连接或服务器是否可用 ${EmojiText[500]}`)
-    } else if (error.code === 'ECONNABORTED') {
-      ElMessage.error(`请求超时，请稍后重试 ${EmojiText[500]}`)
-    } else {
-      const message = error.response?.data?.message || error.message || '未知错误'
-      ElMessage.error(message)
+  }
+
+  try {
+    const res = await axiosInstance.request<Api.Http.BaseResponse<T>>(config)
+    return res.data.data as T
+  } catch (error) {
+    if (error instanceof HttpError) {
+      // 根据配置决定是否显示错误消息
+      const showErrorMessage = config.showErrorMessage !== false
+      showError(error, showErrorMessage)
     }
-    
     return Promise.reject(error)
   }
 }
 
 // API 方法集合
 const api = {
-  get<T>(config: AxiosRequestConfig): Promise<T> {
-    return request({ ...config, method: 'GET' }) // GET 请求
+  get<T>(config: ExtendedAxiosRequestConfig): Promise<T> {
+    return retryRequest<T>({ ...config, method: 'GET' })
   },
-  post<T>(config: AxiosRequestConfig): Promise<T> {
-    return request({ ...config, method: 'POST' }) // POST 请求
+  post<T>(config: ExtendedAxiosRequestConfig): Promise<T> {
+    return retryRequest<T>({ ...config, method: 'POST' })
   },
-  put<T>(config: AxiosRequestConfig): Promise<T> {
-    return request({ ...config, method: 'PUT' }) // PUT 请求
+  put<T>(config: ExtendedAxiosRequestConfig): Promise<T> {
+    return retryRequest<T>({ ...config, method: 'PUT' })
   },
-  del<T>(config: AxiosRequestConfig): Promise<T> {
-    return request({ ...config, method: 'DELETE' }) // DELETE 请求
+  del<T>(config: ExtendedAxiosRequestConfig): Promise<T> {
+    return retryRequest<T>({ ...config, method: 'DELETE' })
+  },
+  request<T>(config: ExtendedAxiosRequestConfig): Promise<T> {
+    return retryRequest<T>({ ...config })
   }
+}
+
+// 退出登录函数
+const logOut = (): void => {
+  setTimeout(() => {
+    useUserStore().logOut()
+  }, LOGOUT_DELAY)
 }
 
 export default api

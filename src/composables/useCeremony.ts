@@ -1,18 +1,15 @@
 import { useTimeoutFn, useIntervalFn } from '@vueuse/core'
 import { useDateFormat } from '@vueuse/core'
 import { useSettingStore } from '@/store/modules/setting'
-import { festivalList } from '@/config/ceremony'
-import mittBus from '@/utils/mittBus'
+import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
+import { mittBus } from '@/utils/sys'
+import { festivalConfigList } from '@/config/festival'
 
 // 节日庆祝相关配置
 export function useCeremony() {
   const settingStore = useSettingStore()
-
-  // 节日礼花效果是否已加载
-  const holidayFireworksLoaded = computed(() => settingStore.holidayFireworksLoaded)
-  // 节日礼花是否显示
-  const isShowFireworks = computed(() => settingStore.isShowFireworks)
+  const { holidayFireworksLoaded, isShowFireworks } = storeToRefs(settingStore)
 
   // 烟花间隔引用，用于清理
   let fireworksInterval: { pause: () => void } | null = null
@@ -20,7 +17,7 @@ export function useCeremony() {
   // 判断当前日期是否是节日
   const currentFestivalData = computed(() => {
     const currentDate = useDateFormat(new Date(), 'YYYY-MM-DD').value
-    return festivalList.find((item) => item.date === currentDate)
+    return festivalConfigList.find((item) => item.date === currentDate)
   })
 
   // 节日庆祝相关配置
